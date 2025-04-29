@@ -107,9 +107,13 @@ const projectConfig = {
   // Uncomment the following lines to enable REDIS
   // redis_url: REDIS_URL
 };
+const featureFlags = {
+  product_categories: true,
+};
 
 module.exports = {
   projectConfig,
   plugins,
   modules,
+  featureFlags
 };

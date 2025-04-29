@@ -29,13 +29,14 @@ class OrderService extends MedusaOrderService {
     if(this.loggedInUser_){
       config.relations = [
         ...(config.relations || []),
-        'store'
+        'store', 'region'
       ]
       config.select = [
         ...(config.select || []),
-        'store_id'
+        'store_id', 'region_id'
       ]
     }
+    
     
     const order = await super.retrieve(orderId, config);
     
