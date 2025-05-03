@@ -46,6 +46,7 @@ const buildFulfillmentItems = (items: LineItem[]): FulfillmentItem[] => {
   }));
 };
 
+
 class CustomManualFulfillmentService extends AbstractFulfillmentService {
   static identifier = "custom-fulfillment-manual";
 
@@ -58,8 +59,9 @@ class CustomManualFulfillmentService extends AbstractFulfillmentService {
     data: any,
     cart: Cart
   ): Promise<number> {
+    console.log("Calling this MFR");
     const enrichedAddress = await this.ensureGeoLocation(data.address);
-
+    console.log("Calling this MFR", enrichedAddress);
     const itemsByVendor: Record<string, LineItem[]> = {};
     for (const item of cart.items) {
       const storeId = item.metadata?.store_id;
@@ -69,6 +71,8 @@ class CustomManualFulfillmentService extends AbstractFulfillmentService {
       }
       itemsByVendor[storeId].push(item);
     }
+
+    console.log("Calling this MFR", itemsByVendor);
 
     let totalCost = 0;
 
@@ -114,11 +118,14 @@ class CustomManualFulfillmentService extends AbstractFulfillmentService {
   }
 
   async ensureGeoLocation(address: Address): Promise<Address> {
+    console.log("Calling this nw");
     if (address?.metadata?.lat && address?.metadata?.lon) return address;
-
+    console.log("Calling this guy");
     const query = `${address.address_1}, ${address.city}, ${
       address.postal_code || ""
     }, ${address.country_code}`;
+
+    console.log(query);
     try {
       const res = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
