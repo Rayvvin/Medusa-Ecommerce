@@ -10,8 +10,6 @@ import {
   MedusaContainer,
   Order,
 } from "@medusajs/medusa";
-
-import { getDistance } from "geolib";
 import fetch from "node-fetch";
 import shippingRules from "../constants/shipping-rules.json";
 import StoreRepository from "src/repositories/store";
@@ -109,36 +107,7 @@ class CustomManualFulfillmentService extends AbstractFulfillmentService {
   
   
 
-  async ensureGeoLocation(address: Address): Promise<Address> {
-    if (address?.metadata?.lat && address?.metadata?.lon) return address;
-    const query = `${address.address_1}, ${address.city}, ${
-      address.postal_code || ""
-    }, ${address.country_code}`;
-
-    console.log(query);
-    try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-          query
-        )}`,
-        { headers: { "User-Agent": "medusa-server" } }
-      );
-
-      const data = await res.json();
-      if (!data[0]) return address;
-
-      address.metadata = {
-        ...address.metadata,
-        lat: parseFloat(data[0].lat),
-        lon: parseFloat(data[0].lon),
-      };
-
-      return address;
-    } catch (e: any) {
-      console.warn("Geo API error:", e.message);
-      return address;
-    }
-  }
+  
 
   async getVendorGeo(storeId?: string): Promise<{ country: string; province: string; city: string } | null> {
     if (!storeId) return null;
@@ -175,62 +144,6 @@ class CustomManualFulfillmentService extends AbstractFulfillmentService {
   }
   
   
-
-  determineZone(city = ""): string {
-    const lc = city.toLowerCase();
-    if (lc.includes("central")) return "central";
-    if (lc.includes("urban")) return "urban";
-    if (lc.includes("suburb")) return "suburban";
-    if (lc.includes("rural")) return "rural";
-    return "outer";
-  }
-
-  calculateDynamicShippingCost({
-    vendor,
-    customer,
-    items,
-    method,
-    transportType,
-    zone,
-  }: {
-    vendor: GeoLocation;
-    customer: GeoLocation;
-    items: LineItem[];
-    method: string;
-    transportType: string;
-    zone: string;
-  }): number {
-    const rule: ShippingRule | undefined = shippingRules.find(
-      (r) =>
-        r.location.toLowerCase() === vendor.city.toLowerCase() &&
-        r.transport_type === transportType
-    );
-
-    if (!rule) return 0;
-
-    const distanceKm =
-      getDistance(
-        { latitude: vendor.lat, longitude: vendor.lon },
-        { latitude: customer.lat, longitude: customer.lon }
-      ) / 1000;
-
-    const totalWeight = items.reduce(
-      (sum, i) => sum + (i.variant?.weight || 1),
-      0
-    );
-
-    let cost = rule.base_fare;
-    cost += rule.distance_cost * distanceKm;
-    cost += rule.weight_cost * totalWeight;
-
-    if (zone && rule.zone_modifiers?.[zone]) {
-      cost += rule.zone_modifiers[zone];
-    }
-
-    const speedMultiplier = rule.speed_multiplier?.[method] || 1;
-
-    return parseFloat((cost * speedMultiplier).toFixed(2));
-  }
 
   async getFulfillmentOptions() {
     return [
