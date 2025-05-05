@@ -54,73 +54,63 @@ class CustomManualFulfillmentService extends AbstractFulfillmentService {
     super(container);
   }
 
-  async calculatePrice(
-    optionData: any,
-    data: any,
-    cart: Cart
-  ): Promise<number> {
-    console.log("Calling this MFR");
-    const enrichedAddress = await this.ensureGeoLocation(data.address);
-    console.log("Calling this MFR", enrichedAddress);
+  async calculatePrice(optionData: any, data: any, cart: Cart): Promise<number> {
+    const enrichedAddress = {
+      country: cart.shipping_address?.country_code?.toUpperCase() || "",
+      province: cart.shipping_address?.province?.toLowerCase() || "",
+      city: cart.shipping_address?.city?.toLowerCase() || "",
+    };
+  
     const itemsByVendor: Record<string, LineItem[]> = {};
     for (const item of cart.items) {
-      const storeId = item.metadata?.store_id;
+      const storeId = item.variant?.product?.store_id;
       if (!storeId || typeof storeId !== "string") continue;
       if (!itemsByVendor[storeId]) {
         itemsByVendor[storeId] = [];
       }
       itemsByVendor[storeId].push(item);
     }
-
-    console.log("Calling this MFR", itemsByVendor);
-
+  
+    const vendorGeoCache: Record<string, { country: string; province: string; city: string }> = {};
+  
     let totalCost = 0;
-
+  
     for (const [storeId, items] of Object.entries(itemsByVendor)) {
-      const vendorLocation = await this.getVendorGeo(storeId);
-
-      if (
-        !vendorLocation ||
-        !enrichedAddress?.metadata?.lat ||
-        !enrichedAddress?.metadata?.lon
-      ) {
-        continue;
+      if (!vendorGeoCache[storeId]) {
+        const vendorLocation = await this.getVendorGeo(storeId);
+        if (!vendorLocation) continue;
+        vendorGeoCache[storeId] = vendorLocation;
       }
+  
+      const vendorLocation = vendorGeoCache[storeId];
 
-      const zone =
-        typeof optionData?.data?.zone === "string"
-          ? optionData.data.zone
-          : this.determineZone(enrichedAddress.city || "");
-
-      const method = (optionData?.name || "standard").toLowerCase();
-      const transportType =
-        typeof optionData?.data?.transport_type === "string"
-          ? optionData.data.transport_type
-          : "bike";
-
-      const cost = this.calculateDynamicShippingCost({
-        vendor: vendorLocation,
-        customer: {
-          lat: enrichedAddress.metadata.lat as number,
-          lon: enrichedAddress.metadata.lon as number,
-          city: enrichedAddress.city || "Unknown",
-        },
-        items,
-        method,
-        transportType,
-        zone,
-      });
-
+  
+      const sameCountry = enrichedAddress.country === vendorLocation.country;
+      const sameProvince = enrichedAddress.province === vendorLocation.province;
+      const sameCity = enrichedAddress.city === vendorLocation.city;
+  
+      let cost = 0;
+  
+      if (!sameCountry) {
+        cost = 15; // international default
+      } else if (!sameProvince) {
+        cost = 10;
+      } else if (!sameCity) {
+        cost = 5 + Math.random() * 3; // 5 - 8
+      } else {
+        cost = 2.99 + Math.random() * 2; // 2.99 - 5
+      }
+  
       totalCost += cost;
     }
-
-    return Math.round(totalCost * 100); // amount in smallest currency unit
+  
+    return Math.round(totalCost * 100); // return in smallest currency unit
   }
+  
+  
 
   async ensureGeoLocation(address: Address): Promise<Address> {
-    console.log("Calling this nw");
     if (address?.metadata?.lat && address?.metadata?.lon) return address;
-    console.log("Calling this guy");
     const query = `${address.address_1}, ${address.city}, ${
       address.postal_code || ""
     }, ${address.country_code}`;
@@ -150,53 +140,41 @@ class CustomManualFulfillmentService extends AbstractFulfillmentService {
     }
   }
 
-  async getVendorGeo(storeId?: string): Promise<GeoLocation | null> {
+  async getVendorGeo(storeId?: string): Promise<{ country: string; province: string; city: string } | null> {
     if (!storeId) return null;
-
+  
     try {
-      const storeRepo = this.container
-        .storeRepository as typeof StoreRepository;
+      const storeRepo = this.container.storeRepository as typeof StoreRepository;
       const store = await storeRepo.findOne({ where: { id: storeId } });
-
-      if (store?.metadata?.lat && store?.metadata?.lon) {
-        return {
-          lat: Number(store.metadata.lat),
-          lon: Number(store.metadata.lon),
-          city:
-            typeof store.metadata.city === "string"
-              ? store.metadata.city
-              : "Unknown",
-        };
-      }
-
-      if (!store.metadata.address_1 || !store.metadata.city) return null;
-
-      const query = `${store.metadata.address_1}, ${store.metadata.city}, ${
-        store.metadata.postal_code || ""
-      }, ${store.metadata.country_code || ""}`;
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-          query
-        )}`,
-        { headers: { "User-Agent": "medusa-server" } }
-      );
-
-      const data = await res.json();
-      if (!data[0]) return null;
-
+  
+      if (!store?.metadata) return null;
+  
+      const country = typeof store.metadata.country_code === "string" 
+        ? store.metadata.country_code.toUpperCase() 
+        : "";
+  
+      const province = typeof store.metadata.province === "string"
+        ? store.metadata.province.toLowerCase()
+        : "";
+  
+      const city = typeof store.metadata.city === "string"
+        ? store.metadata.city.toLowerCase()
+        : "";
+  
+      if (!country && !province && !city) return null;
+  
       return {
-        lat: parseFloat(data[0].lat),
-        lon: parseFloat(data[0].lon),
-        city:
-          typeof store.metadata.city === "string"
-            ? store.metadata.city
-            : "Unknown",
+        country,
+        province,
+        city,
       };
     } catch (e: any) {
       console.warn("Vendor geo lookup failed:", e.message);
       return null;
     }
   }
+  
+  
 
   determineZone(city = ""): string {
     const lc = city.toLowerCase();
