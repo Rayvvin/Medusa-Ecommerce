@@ -39,20 +39,7 @@ const REDIS_URLL = process.env.REDIS_URLL || "redis://localhost:6379";
 const plugins = [
   `medusa-fulfillment-manual`,
   `medusa-payment-manual`,
-  {
-    resolve: `medusa-payment-paystack`,
-    /** @type {import("medusa-payment-paystack").PluginOptions} */
-    options: {
-      secret_key: process.env.PS_KEY,
-    },
-  },
-  {
-    resolve: `medusa-payment-flutterwave-pro`,
-    /** @type {import("medusa-payment-flutterwave-pro").PluginOptions} */
-    options: {
-      secret_key: process.env.FW_KEY,
-    },
-  },
+  
   {
     resolve: `medusa-storage-supabase`,
     options: {
