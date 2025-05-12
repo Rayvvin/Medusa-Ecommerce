@@ -27,7 +27,8 @@ const ADMIN_CORS =
   process.env.ADMIN_CORS || "http://localhost:7000,http://localhost:7001";
 
 // CORS to avoid issues when consuming Medusa from a client
-const STORE_CORS = process.env.STORE_CORS || "http://localhost:8000,http://localhost:8005";
+const STORE_CORS =
+  process.env.STORE_CORS || "http://localhost:8000,http://localhost:8005";
 
 const DATABASE_URL =
   process.env.DATABASE_URL || "postgres://localhost/medusa-store";
@@ -39,7 +40,7 @@ const REDIS_URLL = process.env.REDIS_URLL || "redis://localhost:6379";
 const plugins = [
   `medusa-fulfillment-manual`,
   `medusa-payment-manual`,
-  
+
   {
     resolve: `medusa-storage-supabase`,
     options: {
@@ -58,55 +59,55 @@ const plugins = [
       },
     },
   },
+  {
+    resolve: `medusa-payment-stripe`,
+    options: {
+      api_key: process.env.STRIPE_API_KEY,
+      webhook_secret: process.env.STRIPE_WEBHOOK_SECRET,
+      automatic_payment_methods: true,
+      capture: true,
+    },
+  },
   // {
-  //   resolve: `medusa-payment-stripe`,
+  //   resolve: `medusa-plugin-smtp`,
   //   options: {
-  //     api_key: process.env.STRIPE_API_KEY,
-  //     webhook_secret: process.env.STRIPE_WEBHOOK_SECRET,
-  //     automatic_payment_methods: true,
-  //     capture: true
+  //     fromEmail: "rayvvin01@gmail.com",
+  //     // this object is input directly into nodemailer.createtransport(), so anything that works there should work here
+  //     // see: https://nodemailer.com/smtp/#1-single-connection and https://nodemailer.com/transports/
+  //     transport:
+  //       // {
+  //       //   host: process.env.SMTP_HOST,
+  //       //   port: process.env.SMTP_PORT,
+  //       //   secure: false, // true for 465, false for other ports
+  //       //   auth: {
+  //       //     user: process.env.SMTP_USER,
+  //       //     pass: process.env.SMTP_PASS,
+  //       //   },
+  //       // }
+  //       // an example for an office365 smtp transport:
+  //       {
+  //         host: "smtp.gmail.com",
+  //         port: 587,
+  //         secureConnection: false,
+  //         auth: {
+  //           user: process.env.SMTP_USER,
+  //           pass: process.env.SMTP_PASS,
+  //         },
+  //         tls: {
+  //           ciphers: "SSLv3",
+  //         },
+  //         requireTLS: true,
+  //       },
+  //     // this is the path where your email templates are stored
+  //     emailTemplatePath: "data/emailTemplates",
+  //     // this maps the folder/template name to a medusajs event to use the right template
+  //     // only the events that are registered here are subscribed to
+  //     templateMap: {
+  //       // "eventname": "templatename",
+  //       "order.placed": "orderplaced",
+  //     },
   //   },
   // },
-  {
-    resolve: `medusa-plugin-smtp`,
-    options: {
-      fromEmail: "rayvvin01@gmail.com",
-      // this object is input directly into nodemailer.createtransport(), so anything that works there should work here
-      // see: https://nodemailer.com/smtp/#1-single-connection and https://nodemailer.com/transports/
-      transport: 
-      // {
-      //   host: process.env.SMTP_HOST,
-      //   port: process.env.SMTP_PORT,
-      //   secure: false, // true for 465, false for other ports
-      //   auth: {
-      //     user: process.env.SMTP_USER,
-      //     pass: process.env.SMTP_PASS,
-      //   },
-      // }
-      // an example for an office365 smtp transport:
-      {
-          host: "smtp.gmail.com",
-          port: 587,
-          secureConnection: false,
-          auth: {
-              user: process.env.SMTP_USER,
-              pass: process.env.SMTP_PASS,
-          },
-          tls: {
-              ciphers: "SSLv3",
-          },
-          requireTLS: true,
-      },
-      // this is the path where your email templates are stored
-      emailTemplatePath: "data/emailTemplates",
-      // this maps the folder/template name to a medusajs event to use the right template
-      // only the events that are registered here are subscribed to
-      templateMap: {
-          // "eventname": "templatename",
-          "order.placed": "orderplaced",
-      },
-  }
-  }
 ];
 
 const modules = {
@@ -142,5 +143,5 @@ module.exports = {
   projectConfig,
   plugins,
   modules,
-  featureFlags
+  featureFlags,
 };
