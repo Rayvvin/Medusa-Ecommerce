@@ -40,7 +40,6 @@ const REDIS_URLL = process.env.REDIS_URLL || "redis://localhost:6379";
 const plugins = [
   `medusa-fulfillment-manual`,
   `medusa-payment-manual`,
-
   {
     resolve: `medusa-storage-supabase`,
     options: {
