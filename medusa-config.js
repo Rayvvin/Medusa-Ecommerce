@@ -67,45 +67,91 @@ const plugins = [
       capture: true,
     },
   },
+  // {
+  //   resolve: "@medusajs/medusa/notification",
+  //   options: {
+  //     providers: [
+  //       // # SMTP Notification
+  //       {
+  //         resolve: "@tsc_tech/medusa-plugin-smtp/providers/smtp",
+  //         id: "notification-smtp",
+  //         options: {
+  //           channels: ["email"],
+  //           fromEmail: process.env.SMTP_FROM,
+  //           transport: {
+  //             host: process.env.SMTP_HOST || "smtp.gmail.com",
+  //             port: process.env.SMTP_PORT || 465,
+  //             secure: process.env.SMTP_SECURE || false,
+  //             auth: {
+  //               user: process.env.SMTP_AUTH_USER,
+  //               pass: process.env.SMTP_AUTH_PASS,
+  //             },
+  //           },
+  //         },
+  //       },
+  //     ],
+  //   },
+  // },
+  // {
+  //   resolve: `medusa-plugin-smtp`,
+  //   options: {
+  //     fromEmail: "rayvvin01@gmail.com",
+  //     // this object is input directly into nodemailer.createtransport(), so anything that works there should work here
+  //     // see: https://nodemailer.com/smtp/#1-single-connection and https://nodemailer.com/transports/
+  //     transport:
+  //       // {
+  //       //   host: process.env.SMTP_HOST,
+  //       //   port: process.env.SMTP_PORT,
+  //       //   secure: false, // true for 465, false for other ports
+  //       //   auth: {
+  //       //     user: process.env.SMTP_USER,
+  //       //     pass: process.env.SMTP_PASS,
+  //       //   },
+  //       // }
+  //       // an example for an office365 smtp transport:
+  //       {
+  //         host: process.env.SMTP_HOST,
+  //         port: process.env.SMTP_PORT,
+  //         secure: false, // true for 465, false for other ports
+  //         auth: {
+  //           user: process.env.SMTP_USER,
+  //           pass: process.env.SMTP_PASS,
+  //         },
+  //       },
+  //     // {
+  //     //   host: "smtp.gmail.com",
+  //     //   port: 587,
+  //     //   secureConnection: false,
+  //     //   auth: {
+  //     //     user: process.env.SMTP_USER,
+  //     //     pass: process.env.SMTP_PASS,
+  //     //   },
+  //     //   // tls: {
+  //     //   //   ciphers: "SSLv3",
+  //     //   // },
+  //     //   // requireTLS: true,
+  //     // },
+  //     // this is the path where your email templates are stored
+  //     emailTemplatePath: "data/emailTemplates",
+  //     // this maps the folder/template name to a medusajs event to use the right template
+  //     // only the events that are registered here are subscribed to
+  //     templateMap: {
+  //       // "eventname": "templatename",
+  //       "invite.created": "inviteCreated",
+  //       "order.placed": "orderPlaced",
+  //     },
+  //   },
+  // },
   {
-    resolve: `medusa-plugin-smtp`,
+    resolve: "@rootxpdev/medusa-email-plugin",
     options: {
-      fromEmail: "rayvvin01@gmail.com",
-      // this object is input directly into nodemailer.createtransport(), so anything that works there should work here
-      // see: https://nodemailer.com/smtp/#1-single-connection and https://nodemailer.com/transports/
-      transport:
-        // {
-        //   host: process.env.SMTP_HOST,
-        //   port: process.env.SMTP_PORT,
-        //   secure: false, // true for 465, false for other ports
-        //   auth: {
-        //     user: process.env.SMTP_USER,
-        //     pass: process.env.SMTP_PASS,
-        //   },
-        // }
-        // an example for an office365 smtp transport:
-        {
-          host: "smtp.gmail.com",
-          port: 587,
-          secureConnection: false,
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          },
-          tls: {
-            ciphers: "SSLv3",
-          },
-          requireTLS: true,
-        },
-      // this is the path where your email templates are stored
-      emailTemplatePath: "data/emailTemplates",
-      // this maps the folder/template name to a medusajs event to use the right template
-      // only the events that are registered here are subscribed to
-      templateMap: {
-        // "eventname": "templatename",
-        "order.placed": "orderplaced",
-      },
-    },
+        templateDir: "node_modules/@rootxpdev/medusa-email-plugin/data/emails",
+        fromAddress: process.env.SMTP_USER,
+        smtpHost: process.env.SMTP_HOST,
+        smtpPort: process.env.SMTP_PORT,
+        smtpUser: process.env.SMTP_USER,
+        smtpPassword: process.env.SMTP_PORT,
+    }
   },
 ];
 

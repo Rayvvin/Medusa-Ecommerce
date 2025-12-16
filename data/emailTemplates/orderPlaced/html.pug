@@ -1,0 +1,26 @@
+doctype html
+html
+  head
+    meta(charset="UTF-8")
+    title Order Confirmation
+    style.
+      body {
+        font-family: Arial, sans-serif;
+        background: #f8f8f8;
+        padding: 20px;
+      }
+      .content {
+        background: #fff;
+        padding: 20px;
+        border-radius: 5px;
+      }
+
+  body
+    .content
+      h1 Thank you for your order, #{order.customer.first_name}!
+      p Your order <strong>#{order.display_id}</strong> was successfully placed.
+      ul
+        each item in order.items
+          li #{item.title} - Qty: #{item.quantity} - Price: #{item.unit_price / 100} #{order.currency_code.toUpperCase()}
+      p Total: <strong>#{order.total / 100} #{order.currency_code.toUpperCase()}</strong>
+      p We’ll notify you when it ships!

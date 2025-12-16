@@ -14,7 +14,7 @@ class OrderService extends MedusaOrderService {
 
   constructor(container, options) {
     // @ts-expect-error prefer-rest-params
-    super(...arguments)
+    super(...arguments);
 
     try {
       this.loggedInUser_ = container.loggedInUser;
@@ -25,27 +25,57 @@ class OrderService extends MedusaOrderService {
   }
 
   async retrieve(orderId: string, config?: FindConfig<Order>): Promise<Order> {
-    
-    if(this.loggedInUser_){
-      config.relations = [
-        ...(config.relations || []),
-        'store', 'region'
-      ]
-      config.select = [
-        ...(config.select || []),
-        'store_id', 'region_id'
-      ]
-    }
-    
-    
-    const order = await super.retrieve(orderId, config);
-    
-    if (this.loggedInUser_ && this.loggedInUser_?.store_id && order.store_id !== this.loggedInUser_.store_id) {
-      // Throw error if you don't want an order to be accessible to other stores
-      throw new Error('Order does not exist in store.');
+    // console.log(
+    //   "OrderService retrieve called with orderId:",
+    //   orderId,
+    //   "and config:",
+    //   config
+    // );
+
+    if (this.loggedInUser_) {
+      if (config.relations.includes("fulfillments")) {
+        // console.log("Config relations include fulfillments");
+        // config.select = [...(config.select || []), "store_id", "region_id"];
+        config.relations.push("store");
+        // config.select.push("store_id");
+      } else {
+        config.relations = [...(config.relations || []), "store", "region"];
+        config.select = [...(config.select || []), "store_id", "region_id"];
+      }
     }
 
-    return order
+    let order = await super.retrieve(orderId, config);
+
+    // Only set store_id if it's not already present and order.store.id exists
+    if (
+      (order.store_id === null || order.store_id === undefined) &&
+      this.loggedInUser_ &&
+      this.loggedInUser_.store_id &&
+      order.store &&
+      order.store.id
+    ) {
+      order.store_id = order.store.id;
+    }
+
+    if (
+      this.loggedInUser_ &&
+      this.loggedInUser_?.store_id &&
+      (!order.store_id || order.store_id !== this.loggedInUser_.store_id)
+    ) {
+      // Check if any of the order items belong to the user's store
+      const hasStoreProduct = order.items?.some(
+        (item) => item.variant.product?.store_id === this.loggedInUser_.store_id
+      );
+
+      if (hasStoreProduct) {
+        return order;
+      }
+
+      // Throw error if you don't want an order to be accessible to other stores
+      throw new Error("Order does not exist in store.");
+    }
+
+    return order;
   }
 
   async list(
@@ -65,8 +95,10 @@ class OrderService extends MedusaOrderService {
     return await super.list(selector, config);
   }
 
-
-  async listAndCount(selector: Selector<Order>, config?: FindConfig<Order>): Promise<[Order[], number]> {
+  async listAndCount(
+    selector: Selector<Order>,
+    config?: FindConfig<Order>
+  ): Promise<[Order[], number]> {
     // Your existing logic for listing orders
     if (this.loggedInUser_ && this.loggedInUser_.store_id) {
       selector["store_id"] = this.loggedInUser_.store_id;
@@ -77,9 +109,8 @@ class OrderService extends MedusaOrderService {
     config.relations = config.relations ?? [];
     config.relations.push("children", "parent", "store");
 
-    return await super.listAndCount(selector, config)
+    return await super.listAndCount(selector, config);
   }
-
 }
 
 export default OrderService;

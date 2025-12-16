@@ -8,7 +8,7 @@ export default async function orderPlacedHandler({
   container,
   pluginOptions,
 }: SubscriberArgs<Record<string, string>>) {
-  // console.log(data);
+  console.log(data);
   splitParentOrderWorkflow(container)
     .run({
       input: {
