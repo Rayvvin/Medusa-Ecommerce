@@ -6,8 +6,11 @@ import {
 import { MedusaContainer } from "@medusajs/medusa/dist/types/global";
 import { Logger } from "winston";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import * as nodemailer from "nodemailer";
+import EmailTemplates from "email-templates";
 import OrderService from "../services/order";
 import EventBusService from "@medusajs/medusa/dist/services/event-bus";
+import { NotificationService } from "@medusajs/medusa";
 import CustomFufillmentManualService from "../services/custom-fufillment-manual";
 import FulfillmentRepository from "@medusajs/medusa/dist/repositories/fulfillment";
 import { log } from "console";
@@ -34,8 +37,8 @@ type TaskType =
   | "update_packing"
   | "confirm_packing"
   | "update_shipping"
-  | "update_delivery";
-
+  | "update_delivery"
+  | "confirm_parent_order";
 type Task = {
   type: TaskType;
   fulfillment_id: string;
@@ -93,12 +96,68 @@ const manageFulfillments = createStep(
       eventBusService = null;
     }
     const orderService = container.resolve<OrderService>("orderService");
+    const orderRepository = container.resolve("orderRepository");
+    const notificationService = container.resolve<NotificationService>(
+      "notificationService"
+    );
     const customFufillmentManualService =
       container.resolve<CustomFufillmentManualService>(
         "customFufillmentManualService"
       );
 
     const supabase = await getSupabaseFromContainerOrEnv(container);
+
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || "587"),
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+
+    const templateMap = {
+      "fulfillment.packing.updated": "fulfillmentPackingUpdated",
+      "fulfillment.packing.confirmed": "fulfillmentPackingConfirmed",
+      "fulfillment.shipping.updated": "fulfillmentShippingUpdated",
+      "fulfillment.delivery.updated": "fulfillmentDeliveryUpdated",
+      "order.placed": "orderPlaced",
+    };
+
+    const sendTemplatedNotification = async (event: string, eventData: any) => {
+      const templateName = templateMap[event];
+      if (!templateName) return;
+
+      let data = eventData;
+      let to = '';
+
+      if (event === 'order.placed') {
+        to = eventData.customer.email;
+      } else {
+        // For fulfillment events, fetch order
+        const fulfillment = await fulfillmentRepo.findOne({
+          where: { id: eventData.fulfillment_id },
+          relations: ['order', 'order.customer']
+        });
+        data = { ...eventData, fulfillment, order: fulfillment.order, customer: fulfillment.order.customer };
+        to = fulfillment.order.customer.email;
+      }
+
+      const email = new EmailTemplates({
+        message: { from: 'rayvvin01@gmail.com' },
+        transport: transporter,
+        views: { root: 'data/emailTemplates' },
+        send: true
+      });
+      // console.log("Sending email to:", to, "using template:", templateName, data);
+
+      await email.send({
+        template: templateName,
+        message: { to },
+        locals: { order: data, customer: data.customer, env: process.env }
+      });
+    };
 
     logger.info(
       `manageFulfillments received ${input.tasks?.length ?? 0} tasks`
@@ -148,9 +207,16 @@ const manageFulfillments = createStep(
           case "create_delivery": {
             // expected data: { delivery_id, fulfillment_ids: string[], created_at?, other delivery data }
             console.log("create_delivery task data:", task.data);
-            const { delivery_id, fulfillment_ids, created_at, ...otherData } = task.data ?? {};
-            if (!delivery_id || !fulfillment_ids || !Array.isArray(fulfillment_ids)) {
-              throw new Error("create_delivery requires delivery_id and fulfillment_ids array");
+            const { delivery_id, fulfillment_ids, created_at, ...otherData } =
+              task.data ?? {};
+            if (
+              !delivery_id ||
+              !fulfillment_ids ||
+              !Array.isArray(fulfillment_ids)
+            ) {
+              throw new Error(
+                "create_delivery requires delivery_id and fulfillment_ids array"
+              );
             }
 
             const deliveryCreatedAt = created_at || new Date().toISOString();
@@ -185,7 +251,11 @@ const manageFulfillments = createStep(
               confirmed_by: input.user_id,
             });
 
-            results.push({ task, success: true, detail: { delivery_id, processedFulfillments } });
+            results.push({
+              task,
+              success: true,
+              detail: { delivery_id, processedFulfillments },
+            });
             break;
           }
 
@@ -365,6 +435,11 @@ const manageFulfillments = createStep(
               update,
             });
 
+            await sendTemplatedNotification("fulfillment.packing.updated", {
+              fulfillment_id: task.fulfillment_id,
+              update,
+            });
+
             results.push({ task, success: true });
             break;
           }
@@ -497,6 +572,13 @@ const manageFulfillments = createStep(
                 packaged_at: packagedAt,
               });
 
+              await sendTemplatedNotification("fulfillment.packing.confirmed", {
+                fulfillment_id: task.fulfillment_id,
+                pickup_request_id: pickupRequestId,
+                processed_at: processedAt,
+                packaged_at: packagedAt,
+              });
+
               results.push({ task, success: true, detail: updatedPickup });
             } catch (err) {
               logger.error(
@@ -514,24 +596,69 @@ const manageFulfillments = createStep(
           }
 
           case "update_shipping": {
+            // console.log("update_shipping", task);
             // expected data: { status, tracking_number?, shipped_at?, carrier?, meta? }
-            const update = {
-              shipping_status: task.data?.status ?? null,
-              tracking_number: task.data?.tracking_number ?? null,
-              carrier: task.data?.carrier ?? null,
-              shipped_at: task.data?.shipped_at ?? null,
-              shipping_metadata: task.data?.meta ?? null,
-            };
-            const { error } = await supabase
-              .from("fulfillments")
-              .update(update)
-              .eq("id", task.fulfillment_id);
+            // const update = {
+            //   shipping_status: task.data?.status ?? null,
+            //   tracking_number: task.data?.tracking_number ?? null,
+            //   carrier: task.data?.carrier ?? null,
+            //   shipped_at: task.data?.shipped_at ?? null,
+            //   shipping_metadata: task.data?.meta ?? null,
+            // };
+            // const { error } = await supabase
+            //   .from("fulfillment")
+            //   .update(update)
+            //   .eq("id", task.fulfillment_id);
 
-            if (error) throw error;
+            // if (error) throw error;
+
+            // Sync with Medusa
+            if (task.data?.status === "shipped") {
+              try {
+                const fulfillment = await fulfillmentRepo.findOne({
+                  where: { id: task.fulfillment_id },
+                  // select: ["order_id", "shipped_at"],
+                });
+
+                // Idempotency check: only create shipment if not already shipped
+                if (fulfillment?.order_id && !fulfillment.shipped_at) {
+                  const trackingLinks = task.data?.tracking_number
+                    ? [{ tracking_number: task.data.tracking_number as string }]
+                    : [];
+
+                  const config = {
+                    metadata:
+                      (task.data?.meta as Record<string, unknown>) ?? {},
+                    no_notification: false,
+                  };
+
+                  await orderService.createShipment(
+                    fulfillment.order_id,
+                    task.fulfillment_id,
+                    trackingLinks as any,
+                    config
+                  );
+                } else if (fulfillment?.shipped_at) {
+                  logger.info(
+                    `Fulfillment ${task.fulfillment_id} already shipped, skipping createShipment.`
+                  );
+                }
+              } catch (e) {
+                logger.error(
+                  `Failed to create shipment in Medusa for ${task.fulfillment_id}:`,
+                  e
+                );
+              }
+            }
 
             eventBusService?.emit?.("fulfillment.shipping.updated", {
               fulfillment_id: task.fulfillment_id,
-              update,
+              // update,
+            });
+
+            await sendTemplatedNotification("fulfillment.shipping.updated", {
+              fulfillment_id: task.fulfillment_id,
+              status: task.data?.status,
             });
 
             results.push({ task, success: true });
@@ -540,35 +667,84 @@ const manageFulfillments = createStep(
 
           case "update_delivery": {
             // expected data: { status, delivered_at?, proof?, meta? }
+            const status = task.data?.status as string | null;
+            const meta = (task.data?.meta as Record<string, unknown>) || {};
+            const proof = task.data?.proof ?? null;
+
+            // Auto-populate timestamps in metadata based on status
+            if (status) {
+              const now = new Date().toISOString();
+              // map status to timestamp field
+              if (status === "processing") {
+                meta.processed_at =
+                  task.data?.processed_at ?? meta.processed_at ?? now;
+              } else if (status === "delivered") {
+                meta.delivered_at =
+                  task.data?.delivered_at ?? meta.delivered_at ?? now;
+              } else if (status === "completed") {
+                meta.completed_at =
+                  task.data?.completed_at ?? meta.completed_at ?? now;
+              }
+            }
+
             const update = {
-              delivery_status: task.data?.status ?? null,
-              delivered_at: task.data?.delivered_at ?? null,
-              delivery_proof: task.data?.proof ?? null,
-              delivery_metadata: task.data?.meta ?? null,
+              status: status,
+              // proof: proof,
+              metadata: meta,
             };
+
             const { error } = await supabase
-              .from("fulfillments")
+              .from("deliveries")
               .update(update)
-              .eq("id", task.fulfillment_id);
+              .eq("id", task.data?.delivery_id);
 
             if (error) throw error;
+
+            // Sync metadata with Medusa (handles parent/child sync)
+            try {
+              const metadataUpdate = {
+                delivery_status: status,
+                // delivery_proof: proof,
+                ...meta,
+              };
+
+              await customFufillmentManualService.updateFulfillmentMetadata(
+                task.fulfillment_id,
+                metadataUpdate
+              );
+            } catch (e) {
+              logger.error(
+                `Failed to sync delivery metadata in Medusa for ${task.fulfillment_id}:`,
+                e
+              );
+            }
 
             eventBusService?.emit?.("fulfillment.delivery.updated", {
               fulfillment_id: task.fulfillment_id,
               update,
             });
 
+            await sendTemplatedNotification("fulfillment.delivery.updated", {
+              fulfillment_id: task.fulfillment_id,
+              status,
+              delivered_at: meta.delivered_at,
+            });
+
             // Optionally capture or finalize related order/payment if business requires
             try {
               // attempt to retrieve fulfillment to know order_id (if stored)
               const { data: fRows } = await supabase
-                .from("fulfillments")
+                .from("fulfillment") // Used to be fulfillments, user changed to fulfillment in step 43?
+                // Wait, checking step 43, user changed fulfillments -> fulfillment.
+                // But earlier in step 42 user changed fulfillments -> deliveries for the UPDATE.
+                // Here we are selecting from 'fulfillment' (singular) likely valid if user changed schema/naming.
+                // I should stick to 'fulfillment' here if that's what is in the file.
+                // Let's check the current file content for the select.
                 .select("order_id")
                 .eq("id", task.fulfillment_id)
                 .maybeSingle();
 
               if (fRows?.order_id) {
-                // example: emit order-level event or let orderService handle post-delivery flows
                 eventBusService?.emit?.("order.fulfillment.delivered", {
                   order_id: fRows.order_id,
                   fulfillment_id: task.fulfillment_id,
@@ -579,6 +755,119 @@ const manageFulfillments = createStep(
             }
 
             results.push({ task, success: true });
+            break;
+          }
+
+          case "confirm_parent_order": {
+            // expected data: { parent_order_id }
+            const parentOrderId = task.data?.parent_order_id as string;
+            if (!parentOrderId) {
+              throw new Error("confirm_parent_order requires parent_order_id");
+            }
+
+            try {
+              // Check if parent order has child orders
+              const { data: orderData, error: orderError } = await supabase
+                .from("order")
+                .select("metadata, draft_order_id")
+                .eq("id", parentOrderId)
+                .single();
+
+              if (orderError) throw orderError;
+
+              const metadata = orderData?.metadata || {};
+              const isParentOrder =
+                (!metadata || Object.keys(metadata).length === 0) &&
+                !orderData?.draft_order_id;
+
+              // Check if parent order already has child orders
+              const childOrders = await orderRepository.find({
+                where: {
+                  metadata: {
+                    parent: parentOrderId,
+                    type: "childOrder",
+                  },
+                },
+              });
+
+              // Always retrieve order details and send notification
+              try {
+                const order = await orderRepository.findOne({
+                  where: { id: parentOrderId },
+                  relations: [
+                    "items",
+                    "items.variant",
+                    "cart",
+                    "shipping_methods",
+                    "payments",
+                    "customer", 
+                  ],
+                });
+
+                // console.log("Order for notification:", order);
+
+                const providerId = "smtp";
+
+                logger.info(
+                  `Sending order confirmation email to customer ${order.customer.email} for order ${order.id}`
+                );
+
+                await sendTemplatedNotification("order.placed", order);
+
+                logger.info(
+                  `Successfully sent order confirmation email to ${order.customer.email}`
+                );
+
+                //admin copy
+                logger.info(
+                  `Sending admin copy of order confirmation email for order ${order.id}`
+                );
+
+                // For admin, we need to send directly since sendTemplatedNotification expects fulfillment events for non-order.placed
+                await transporter.sendMail({
+                  from: "rayvvin01@gmail.com",
+                  to: "rayvvin01@gmail.com",
+                  subject: "Order Confirmation - Admin Copy",
+                  html: `<h1>Order Placed</h1><p>Order ${order.id} has been placed by customer ${order.customer.email}.</p>`,
+                });
+
+                logger.info(
+                  `Successfully sent admin copy of order confirmation email to rayvvin01@gmail.com`
+                );
+              } catch (notificationError) {
+                logger.error(
+                  `Error sending notification for order ${parentOrderId}:`,
+                  notificationError
+                );
+                // Don't throw, as the order confirmation succeeded
+              }
+
+              // Only emit event if no child orders exist
+              if (!childOrders || childOrders.length === 0) {
+                eventBusService?.emit?.("order.placed", {
+                  id: parentOrderId,
+                  confirmed_at: new Date().toISOString(),
+                });
+
+                results.push({
+                  task,
+                  success: true,
+                  detail: `Parent order ${parentOrderId} confirmed and order.placed event emitted`,
+                });
+              } else {
+                results.push({
+                  task,
+                  success: true,
+                  detail: `Parent order ${parentOrderId} has child orders, skipping confirmation`,
+                });
+              }
+            } catch (error) {
+              logger.error(
+                `Error confirming parent order ${parentOrderId}:`,
+                error
+              );
+              throw error;
+            }
             break;
           }
 

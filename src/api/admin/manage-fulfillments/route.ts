@@ -55,6 +55,8 @@ export const POST = async (req: MedusaRequest, res: MedusaResponse) => {
     }
 
     // Call the workflow. The workflow signature may vary; adjust if needed.
+
+    
     const { result } = await workflowFn(req.scope).run({
       input: {
         user: loggedInUser,

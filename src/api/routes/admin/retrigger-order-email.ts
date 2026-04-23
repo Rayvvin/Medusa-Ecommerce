@@ -40,7 +40,7 @@ export default async (req: MedusaRequest, res: Response): Promise<void> => {
       ],
     });
     order = {
-      ...order, customer: { ...order.customer, email: "emmytheo7@gmail.com" },
+      ...order, customer: { ...order.customer, email: "admin@rayvvin.com" },
     };
   } catch (err) {
     res.status(404).json({ message: `Order with ID ${id} not found` });

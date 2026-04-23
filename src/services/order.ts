@@ -5,6 +5,9 @@ import {
   User,
   FindConfig,
   Selector,
+  Fulfillment,
+  LineItem,
+  TrackingLink,
 } from "@medusajs/medusa";
 
 class OrderService extends MedusaOrderService {
@@ -87,6 +90,10 @@ class OrderService extends MedusaOrderService {
       selector["store_id"] = this.loggedInUser_.store_id;
     }
 
+    console.log("selector", selector);
+    console.log("config", config);
+
+    config.select = config.select ?? [];
     config.select.push("store_id");
 
     config.relations = config.relations ?? [];
@@ -104,12 +111,187 @@ class OrderService extends MedusaOrderService {
       selector["store_id"] = this.loggedInUser_.store_id;
     }
 
+    console.log("listAndCount selector", selector);
+    console.log("listAndCount config", config);
+
     config.select.push("store_id");
 
     config.relations = config.relations ?? [];
     config.relations.push("children", "parent", "store");
 
     return await super.listAndCount(selector, config);
+  }
+
+  async createShipment(
+    orderId: string,
+    fulfillmentId: string,
+    trackingLinks?: TrackingLink[],
+    config: {
+      metadata: Record<string, unknown>;
+      no_notification: boolean;
+    } = {
+        metadata: {},
+        no_notification: false,
+      }
+  ): Promise<Order> {
+
+
+    // const order = await this.retrieve(orderId);
+    // console.log("createShipment", orderId, fulfillmentId, trackingLinks, config);
+    const result = await super.createShipment(
+      orderId,
+      fulfillmentId,
+      trackingLinks ?? [],
+      config
+    );
+    // console.log("result", result);
+
+    const fulfillmentRepo = this.container.fulfillmentRepository;
+    const orderRepo = this.container.orderRepository;
+
+    const fulfillment = await fulfillmentRepo.findOne({
+      where: { id: fulfillmentId },
+      relations: ["items", "items.item"],
+    });
+
+
+    if (!fulfillment) return result;
+
+    const order = await orderRepo.findOne({
+      where: { id: orderId },
+      relations: [
+        "items",
+        "fulfillments",
+        "fulfillments.items",
+        "fulfillments.items.item",
+      ],
+    });
+
+    if (!order) return result;
+
+    // Helper to check if a fulfillment is already shipped
+    const isShipped = (f: Fulfillment) => !!f.shipped_at;
+
+    const childItems: LineItem[] =
+      (fulfillment.items || [])
+        .map((fi) => fi.item)
+        .filter(Boolean) as LineItem[];
+
+    // If the order is a child order, attempt to find and update the parent fulfillment first
+    if (order.metadata?.type === "childOrder" && order.metadata?.parent) {
+      const parentOrderId = order.metadata.parent as string;
+      const parentOrder = await orderRepo.findOne({
+        where: { id: parentOrderId },
+        relations: [
+          "items",
+          "fulfillments",
+          "fulfillments.items",
+          "fulfillments.items.item",
+        ],
+      });
+
+      if (parentOrder) {
+        // Try to locate the corresponding parent fulfillment using existing logic
+        let parentFulfillment = this.findExistingFulfillment(
+          parentOrder,
+          order,
+          fulfillment,
+          childItems
+        );
+
+        // If not found via matching, try linked ID in metadata
+        if (!parentFulfillment) {
+          const linkedParentId = (fulfillment.metadata || {})
+            .linked_parent_fulfillment_id as string;
+          if (linkedParentId) {
+            parentFulfillment = await fulfillmentRepo.findOne({
+              where: { id: linkedParentId },
+              relations: ["items", "items.item"],
+            });
+          }
+        }
+
+        if (parentFulfillment && !isShipped(parentFulfillment)) {
+          // Ship parent fulfillment
+          try {
+            await this.createShipment(
+              parentOrder.id,
+              parentFulfillment.id,
+              trackingLinks,
+              config
+            );
+          } catch (e) {
+            console.warn(
+              `Failed to sync shipment to parent order ${parentOrder.id}:`,
+              e
+            );
+          }
+        }
+      }
+    } else {
+      // If the order is not a child order (treat as parent or standalone),
+      // check if this fulfillment links to any child and update the child as well.
+
+      // 1. Check direct link in metadata
+      const linkedChildId = (fulfillment.metadata || {})
+        .linked_child_fulfillment_id as string;
+      const linkedChildOrderId = (fulfillment.metadata || {})
+        .linked_child_order_id as string;
+
+      if (linkedChildId && linkedChildOrderId) {
+        const childFulfillment = await fulfillmentRepo.findOne({
+          where: { id: linkedChildId },
+        });
+
+        if (childFulfillment && !isShipped(childFulfillment)) {
+          try {
+            await this.createShipment(
+              linkedChildOrderId,
+              linkedChildId,
+              trackingLinks,
+              config
+            );
+          } catch (e) {
+            console.warn(
+              `Failed to sync shipment to child order ${linkedChildOrderId}:`,
+              e
+            );
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  private findExistingFulfillment(
+    parentOrder: Order,
+    childOrder: Order,
+    childFulfillment: Fulfillment,
+    childItems: LineItem[]
+  ): Fulfillment | undefined {
+    return parentOrder.fulfillments.find((f) => {
+      // Check metadata match
+      const metaMatch =
+        f.metadata?.linked_child_order_id === childOrder.id &&
+        f.metadata?.linked_child_fulfillment_id === childFulfillment.id;
+
+      // Check line items match (by variant_id and quantity)
+      const parentItemSet = new Set(
+        (f.items || []).map(
+          (item) => `${item.item.variant_id}:${item.quantity}`
+        )
+      );
+      const childItemSet = new Set(
+        childItems.map((item) => `${item.variant_id}:${item.quantity}`)
+      );
+
+      const itemsMatch =
+        parentItemSet.size === childItemSet.size &&
+        [...parentItemSet].every((key) => childItemSet.has(key));
+
+      return metaMatch || itemsMatch;
+    });
   }
 }
 
